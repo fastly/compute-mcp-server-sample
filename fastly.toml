@@ -1,0 +1,14 @@
+authors = [""]
+cloned_from = "https://github.com/fastly/compute-mcp-server-sample.git"
+description = "Remote MCP server running on Fastly Compute"
+language = "go"
+manifest_version = 3
+name = "compute-mcp-server-sample"
+service_id = ""
+
+[local_server]
+
+[scripts]
+  build = "go build -o bin/main.wasm ."
+  env_vars = ["GOARCH=wasm", "GOOS=wasip1"]
+  post_init = "go get github.com/fastly/compute-sdk-go@latest"
