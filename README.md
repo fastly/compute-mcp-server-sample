@@ -1,10 +1,10 @@
 # Compute MCP Server sample
 
-A remove mcp server running on Fastly Compute running on top of a WebAssembly-based edge serverless platform, enabling safer execution of code both locally and remotely.
+A remote [MCP](https://modelcontextprotocol.io/) server running on Fastly Compute, a WebAssembly-based serverless edge platform, enabling safer execution of code both locally and remotely.
 
 ## Usage
 
-Below is a steps to build and deploy a Streamable HTTP endpoint that doesn't include legacy SSE endpoints.
+Below are steps to build and deploy a Streamable HTTP endpoint that doesn't include legacy SSE endpoints.
 
 ```
 $ git clone https://github.com/fastly/compute-mcp-server-sample.git.git fastly-compute-mcp-server
@@ -21,7 +21,7 @@ View this service at:
 	https://highly-proper-orange.edgecompute.app
 ```
 
-To add support for legacy clients with SSE, please refer to our blog post for detailed instructions. Please note that [Fanout's specification limits message size to about 65KB](https://www.fastly.com/documentation/guides/concepts/real-time-messaging/fanout/#limits). Therefore, when supporting legacy SSE, make sure the result messages from MCP tool calls don't become too large.
+To add support for legacy clients with SSE, please refer to our blog post for detailed instructions. Please note that [Fanout's specification limits message size to about 64KB](https://www.fastly.com/documentation/guides/concepts/real-time-messaging/fanout/#limits). Therefore, when supporting legacy SSE, make sure the result messages from MCP tool calls don't become too large.
 
 ## Security issues
 
