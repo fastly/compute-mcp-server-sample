@@ -45,7 +45,7 @@ type PublishData struct {
 
 func NewMCPServer(hooks *server.Hooks) *server.MCPServer {
 	mcpServer := server.NewMCPServer("fastly-compute-mcp-server", "0.0.1", server.WithLogging(), server.WithHooks(hooks))
-	mcpServer.AddTool(mcp.NewTool(string("GetLatestGeneratedFastlyVcl"),
+	mcpServer.AddTool(mcp.NewTool("GetLatestGeneratedFastlyVcl",
 		mcp.WithDescription("Get the latest generated Fastly VCL associated with the service ID"),
 		mcp.WithString("ServiceID",
 			mcp.Description("Specify which Service ID to use to get generated VCL"),
@@ -82,10 +82,13 @@ func handleFastlyGetLatestGeneratedVclTool(ctx context.Context, request mcp.Call
 }
 
 func main() {
+	// Log service version.
+	fmt.Println("FASTLY_SERVICE_VERSION:", os.Getenv("FASTLY_SERVICE_VERSION"))
+
 	fsthttp.ServeFunc(func(ctx context.Context, w fsthttp.ResponseWriter, r *fsthttp.Request) {
 
-		// Modern Streamable HTTP endpoint (2025-03-26 spec compliant)
 		if strings.HasPrefix(r.URL.Path, "/mcp") {
+			// Modern Streamable HTTP endpoint (2025-03-26 spec compliant)
 			if r.Method == "POST" {
 				hooks := &server.Hooks{}
 				hooks.AddBeforeAny(func(ctx context.Context, id any, method mcp.MCPMethod, message any) {
@@ -93,13 +96,13 @@ func main() {
 						fmt.Printf("mcp-session-id: %s", r.Header.Get("Mcp-Session-Id"))
 						if r.Header.Get("Mcp-Session-Id") == "" {
 							w.WriteHeader(fsthttp.StatusBadRequest)
-							fmt.Fprintln(w, "Bad request\n") // The HTTP response body MAY comprise a JSON-RPC error response that has no id.
+							fmt.Fprintln(w, "Bad request") // The HTTP response body MAY comprise a JSON-RPC error response that has no id.
 							return
 						}
 						rc, err := simple.Get([]byte(r.Header.Get("Mcp-Session-Id")))
 						if err != nil {
 							w.WriteHeader(fsthttp.StatusNotFound)
-							fmt.Fprintln(w, "Not found\n")
+							fmt.Fprintln(w, "Not found")
 							return
 						} else {
 							defer rc.Close()
@@ -142,24 +145,24 @@ func main() {
 			} else if r.Method == "DELETE" {
 				if r.Header.Get("Mcp-Session-Id") == "" {
 					w.WriteHeader(fsthttp.StatusBadRequest)
-					fmt.Fprintln(w, "Bad request\n") // The HTTP response body MAY comprise a JSON-RPC error response that has no id.
+					fmt.Fprintln(w, "Bad request") // The HTTP response body MAY comprise a JSON-RPC error response that has no id.
 				}
 				if err := simple.Purge([]byte(r.Header.Get("Mcp-Session-Id")), simple.PurgeOptions{}); err != nil {
 					w.WriteHeader(fsthttp.StatusMethodNotAllowed)
-					fmt.Fprintln(w, "Not allowed\n")
+					fmt.Fprintln(w, "Not allowed")
 				}
 			} else {
 				w.WriteHeader(fsthttp.StatusOK)
 				fmt.Fprintf(w, "sorry - not supported request atm")
 			}
 
-		// Legacy SSE endpoint for older clients
 		} else if strings.HasPrefix(r.URL.Path, "/sse") && r.Method == "GET" {
+			// Legacy SSE endpoint for older clients
 			sessionID := uuid.New().String()
 			if len(r.Header.Get("Grip-Sig")) > 0 {
 				// Request is from Fanout, handle it here
 				m := map[string]GripResponse{
-					"/sse": GripResponse{"text/event-stream", "stream", sessionID},
+					"/sse": {"text/event-stream", "stream", sessionID},
 				}
 				if val, ok := m[r.URL.Path]; ok {
 					w.Header().Set("Content-Type", val.contentType)
@@ -168,7 +171,7 @@ func main() {
 					w.Header().Set("Cache-Control", "no-cache")
 					w.Header().Set("Connection", "keep-alive")
 					w.Header().Set("Access-Control-Allow-Origin", "*")
-					fmt.Fprintf(w, "event: endpoint\ndata: %s\r\n\r\n", fmt.Sprintf("%s?sessionId=%s", "/messages", sessionID))
+					fmt.Fprintf(w, "event: endpoint\ndata: /messages?sessionId=%s\r\n\r\n", sessionID)
 					return
 
 				} else {
@@ -184,8 +187,8 @@ func main() {
 				return
 			}
 
-		// Legacy SSE endpoint for older clients
 		} else if strings.HasPrefix(r.URL.Path, "/messages") && r.Method == "POST" {
+			// Publish message through Fanout
 			queryStrings, err := url.ParseQuery(r.URL.RawQuery)
 			if err != nil || len(queryStrings["sessionId"]) == 0 {
 				log.Printf("Something wrong with /POST: %s %s", err, queryStrings["sessionId"])
@@ -205,13 +208,19 @@ func main() {
 			mcpServer := NewMCPServer(&server.Hooks{})
 			response := mcpServer.HandleMessage(ctx, rawMessage)
 			if response != nil {
-				rawJson := []byte(fmt.Sprintf(`{"items": [{"channel":"%s", "formats":{"http-stream":{"content":""}}}]}`, sessionID))
-				var message PublishData
-				if err := json.Unmarshal(rawJson, &message); err != nil {
-					fmt.Println(err)
-				}
 				eventData, _ := json.Marshal(response)
-				message.Items[0].Formats.HttpStream.Content = fmt.Sprintf("event: message\ndata: %s\n\n", eventData)
+				message := PublishData{
+					Items: []PublishItem{
+						{
+							Channel: sessionID,
+							Formats: MessageData{
+								HttpStream: HttpStreamData{
+									Content: fmt.Sprintf("event: message\ndata: %s\n\n", eventData),
+								},
+							},
+						},
+					},
+				}
 				v, err := json.Marshal(message)
 				if err != nil {
 					fmt.Println(err)
@@ -222,6 +231,7 @@ func main() {
 					log.Printf("%s: create request: %v", req.URL, err)
 					return
 				}
+				// TODO: Get FASTLY API TOKEN from Secret Store?
 				req.Header.Set("Fastly-Key", "__PUT_YOUR_FASTLY_API_TOKEN__")
 				fastResp, err := req.Send(ctx, "fastly")
 				if err != nil {
